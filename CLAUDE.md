@@ -2,6 +2,10 @@
 
 Dedicated RDP browser wrapper built with Tauri. Hosts Microsoft's web-based RDP client (Windows 365 / AVD) in a native WebView with minimal keyboard interception, letting keystrokes pass through to the remote session.
 
+## Status
+
+Phase 1 (scaffold, auth, passthrough basics) and Phase 2 (keyboard matrix, shortcut-inhibit) are complete. Produces installable `.deb` and `.rpm` from `cargo tauri build`. Phase 3 items (session-drop detection, clipboard portal, status strip, macOS port) remain open.
+
 ## Architecture
 
 - **Tauri v2** (Rust backend, system WebView frontend)
@@ -40,11 +44,21 @@ cargo install tauri-cli --version "^2"
 
 ## Development Commands
 
+Run from the repo root:
+
 ```bash
 cargo tauri dev          # Run in development mode
-cargo tauri build        # Build release binary
+cargo tauri build        # Build release binary + bundle .deb / .rpm
 cargo test               # Run Rust tests
 ```
+
+Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/target/release/bundle/{deb,rpm}/` (packages).
+
+## Known Follow-ups
+
+- Bundle identifier is `com.rdpls.app`; the `.app` suffix warns on macOS builds. Changing it invalidates the WebKit data directory and forces a re-auth.
+- Icons are Tauri placeholders.
+- Session-drop detection, clipboard portal wiring, and status strip are Phase 3.
 
 ## Project Layout
 
