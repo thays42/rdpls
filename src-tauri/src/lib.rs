@@ -1,3 +1,5 @@
+mod keyboard;
+
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const ENTRY_URL: &str = "https://myapps.microsoft.com";
@@ -7,6 +9,7 @@ const SPOOFED_USER_AGENT: &str =
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -15,6 +18,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            keyboard::register_escape_hotkey(app.handle())?;
 
             let url = ENTRY_URL
                 .parse()
