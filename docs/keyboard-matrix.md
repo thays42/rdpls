@@ -3,26 +3,42 @@
 **Tested on:** Fedora 43, niri (Wayland), webkit2gtk-4.1 2.52.1, rdpls debug build
 **Date:** 2026-04-20
 
-All keys listed below were tested during a live RDP session reached via the
-myapps.microsoft.com portal.
+Tested during a live RDP session reached via the myapps.microsoft.com portal.
 
-| Key             | Reaches remote? | Notes |
-|-----------------|-----------------|-------|
-| F5              | ✅              |       |
-| F11             | ✅              |       |
-| Ctrl+W          | ✅              |       |
-| Ctrl+T          | ✅              |       |
-| Ctrl+L          | ✅              |       |
-| Ctrl+R          | ✅              |       |
-| Alt+Left        | ✅              |       |
-| Alt+Right       | ✅              |       |
-| Ctrl+Shift+T    | ✅              |       |
-| Ctrl+N          | ✅              |       |
-| Ctrl+Tab        | ✅              |       |
+## Browser-style keys (WebView level)
 
-## Known limitations
+Nothing on this side is intercepted by Tauri or WebKitGTK.
 
-- **Alt+Tab** is intercepted by niri (compositor-level window switching). This is
-  true of every application on niri; there is no in-app fix. Users who want
-  Alt+Tab inside the remote session should remap their niri binding or use a
-  different combo for niri's switcher.
+| Key             | Reaches remote? |
+|-----------------|-----------------|
+| F5              | ✅              |
+| F11             | ✅              |
+| Ctrl+W          | ✅              |
+| Ctrl+T          | ✅              |
+| Ctrl+L          | ✅              |
+| Ctrl+R          | ✅              |
+| Alt+Left        | ✅              |
+| Alt+Right       | ✅              |
+| Ctrl+Shift+T    | ✅              |
+| Ctrl+N          | ✅              |
+| Ctrl+Tab        | ✅              |
+
+## Compositor-level keys (niri)
+
+These are keys that niri normally consumes. They reach the remote only when
+rdpls' `zwp_keyboard_shortcuts_inhibit_manager_v1` inhibitor is active (which
+it is by default at startup).
+
+| Key             | Reaches remote (inhibit ON)? |
+|-----------------|------------------------------|
+| Alt+Tab         | ✅                           |
+| Super / Win     | ✅                           |
+
+Toggle the inhibitor with **Ctrl+Alt+Shift+Escape**. When OFF, niri reclaims
+these keys (useful for intentional window switching).
+
+## rdpls-specific
+
+| Key                      | Behavior |
+|--------------------------|----------|
+| Ctrl+Alt+Shift+Escape    | Toggle shortcut-inhibit on/off |

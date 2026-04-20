@@ -11,10 +11,13 @@ Dedicated RDP browser wrapper built with Tauri. Hosts Microsoft's web-based RDP 
 
 ## Key Constraints
 
-- **Keyboard passthrough is the core feature.** No application menu. No global shortcut registrations except `Ctrl+Alt+Shift+Escape`. Disable WebKitGTK context menu and Ctrl+scroll zoom.
+- **Keyboard passthrough is the core feature.** No application menu. No Tauri accelerators. Disable WebKitGTK context menu and Ctrl+scroll zoom. The one intentional in-app key is `Ctrl+Alt+Shift+Escape`, captured via JS injection in the WebView (not a global shortcut — those don't work on Wayland).
+- **Compositor-level keys pass through via `zwp_keyboard_shortcuts_inhibit_manager_v1`.** rdpls requests the inhibitor at startup against the main surface and default seat. niri honors it automatically, so Alt+Tab, Super, etc. reach the remote client. `Ctrl+Alt+Shift+Escape` toggles the inhibit on/off.
 - **UA spoofing required.** WebKitGTK default UA triggers Microsoft "unsupported browser" warnings. Spoof current Firefox or Edge.
-- **Persistent cookies.** Stable WebKit data directory so auth survives across launches.
-- **Wayland-native.** No `GDK_BACKEND=x11`. Target is niri on Fedora 43.
+- **Persistent cookies.** Stable WebKit data directory so auth survives across launches. Microsoft issues session-only tokens for the per-app RDP step; this requires re-auth on restart even in Firefox. Not fixable on our side.
+- **Popup → main-window redirect.** Microsoft launches RDP sessions via `window.open()`; intercept webkit2gtk's `create` signal and load the URL in the main WebView instead.
+- **Wayland-native.** No `GDK_BACKEND=x11`. Target is niri on Fedora 43. Shares GTK's existing Wayland connection via `wayland-backend::Backend::from_foreign_display` — never open a second connection, surfaces/seats wouldn't cross over.
+- **No window decorations.** `decorations(false)` — no min/max/close chrome. Compositor handles window management.
 - **Conditional Access passes without managed browser** — Firefox on Fedora already works, so the same UA string works here.
 
 ## Targets
@@ -47,11 +50,16 @@ cargo test               # Run Rust tests
 
 ```
 src-tauri/
-  src/main.rs            # Tauri app setup, window config, UA override
-  src/keyboard.rs        # Escape hotkey registration, key passthrough logic
-  Cargo.toml             # Rust dependencies
-  tauri.conf.json        # Tauri config (window, permissions, CSP)
-  capabilities/          # Tauri v2 capability files
+  src/main.rs                 # Binary entry → calls rdpls_lib::run
+  src/lib.rs                  # Tauri builder, window creation, webkit2gtk setup
+  src/keyboard.rs             # Injected JS for Ctrl+Alt+Shift+Escape, rdpls_exit command
+  src/shortcuts_inhibit.rs    # Wayland shortcut-inhibit protocol wiring (Linux only)
+  Cargo.toml                  # Rust dependencies
+  tauri.conf.json             # Tauri config (window, bundle, CSP)
+  capabilities/default.json   # Tauri v2 capability file
 src/
-  index.html             # Minimal loader (redirects to myapps.microsoft.com)
+  index.html                  # Minimal loader; WebView navigates to myapps.microsoft.com
+docs/
+  keyboard-matrix.md          # Keyboard passthrough test results
+  plans/                      # Implementation plans
 ```
