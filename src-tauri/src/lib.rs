@@ -9,7 +9,7 @@ const SPOOFED_USER_AGENT: &str =
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![keyboard::rdpls_exit])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -19,8 +19,6 @@ pub fn run() {
                 )?;
             }
 
-            keyboard::register_escape_hotkey(app.handle())?;
-
             let url = ENTRY_URL
                 .parse()
                 .expect("ENTRY_URL must be a valid URL");
@@ -29,6 +27,7 @@ pub fn run() {
                 .title("rdpls")
                 .inner_size(1280.0, 800.0)
                 .resizable(true)
+                .decorations(false)
                 .build()?;
 
             let main = app.get_webview_window("main").expect("main window missing");
@@ -67,14 +66,23 @@ fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
         });
 
         if let Some(manager) = webview.user_content_manager() {
-            let script = UserScript::new(
+            let zoom_script = UserScript::new(
                 "window.addEventListener('wheel', function(e) { if (e.ctrlKey) { e.preventDefault(); } }, { passive: false, capture: true });",
                 UserContentInjectedFrames::AllFrames,
                 UserScriptInjectionTime::Start,
                 &[],
                 &[],
             );
-            manager.add_script(&script);
+            manager.add_script(&zoom_script);
+
+            let escape_script = UserScript::new(
+                keyboard::ESCAPE_HOTKEY_SCRIPT,
+                UserContentInjectedFrames::AllFrames,
+                UserScriptInjectionTime::End,
+                &[],
+                &[],
+            );
+            manager.add_script(&escape_script);
         }
     })?;
     Ok(())
