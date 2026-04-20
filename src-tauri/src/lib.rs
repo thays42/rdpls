@@ -1,5 +1,8 @@
 mod keyboard;
 
+#[cfg(target_os = "linux")]
+mod shortcuts_inhibit;
+
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const ENTRY_URL: &str = "https://myapps.microsoft.com";
@@ -9,7 +12,11 @@ const SPOOFED_USER_AGENT: &str =
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![keyboard::rdpls_exit])
+        .invoke_handler(tauri::generate_handler![
+            keyboard::rdpls_exit,
+            #[cfg(target_os = "linux")]
+            shortcuts_inhibit::rdpls_toggle_inhibit
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -32,6 +39,9 @@ pub fn run() {
 
             let main = app.get_webview_window("main").expect("main window missing");
             configure_webview(&main)?;
+
+            #[cfg(target_os = "linux")]
+            shortcuts_inhibit::install(&main)?;
 
             Ok(())
         })

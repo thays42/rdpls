@@ -1,10 +1,11 @@
 /// JS injected into every frame that listens for the one intentional
-/// local accelerator (Ctrl+Alt+Shift+Escape) and asks the Rust side to exit.
+/// local accelerator (Ctrl+Alt+Shift+Escape) and toggles the Wayland
+/// keyboard-shortcuts-inhibit state on the Rust side.
 ///
-/// This runs inside the WebView rather than as a global shortcut because
-/// Wayland compositors (niri) do not expose a working global-shortcut path
-/// for rdev/X11-style grabs. Intercepting at the WebView is fine: the user
-/// always has window focus when they'd want to trigger this.
+/// Intercepting at the WebView rather than as a global shortcut: Wayland
+/// compositors (niri) do not honor X11/rdev-style global grabs. The app
+/// always has focus when the user wants to trigger this, so WebView-level
+/// capture is sufficient.
 pub const ESCAPE_HOTKEY_SCRIPT: &str = r#"
 (function () {
     if (window.__rdpls_escape_installed) return;
@@ -14,13 +15,14 @@ pub const ESCAPE_HOTKEY_SCRIPT: &str = r#"
             e.preventDefault();
             e.stopPropagation();
             if (window.__TAURI_INTERNALS__) {
-                window.__TAURI_INTERNALS__.invoke('rdpls_exit');
+                window.__TAURI_INTERNALS__.invoke('rdpls_toggle_inhibit');
             }
         }
     }, { capture: true });
 })();
 "#;
 
+/// Retained as a fallback / manual exit — not currently wired to any key.
 #[tauri::command]
 pub fn rdpls_exit(app: tauri::AppHandle) {
     app.exit(0);
