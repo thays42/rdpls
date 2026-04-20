@@ -39,8 +39,8 @@ pub fn run() {
 fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|wv| {
         use webkit2gtk::{
-            SettingsExt, UserContentInjectedFrames, UserContentManagerExt, UserScript,
-            UserScriptInjectionTime, WebViewExt,
+            SettingsExt, URIRequestExt, UserContentInjectedFrames, UserContentManagerExt,
+            UserScript, UserScriptInjectionTime, WebViewExt,
         };
 
         let webview = wv.inner();
@@ -51,6 +51,15 @@ fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
         }
 
         webview.connect_context_menu(|_wv, _menu, _event, _hit| true);
+
+        webview.connect_create(|wv, nav_action| {
+            if let Some(req) = nav_action.request() {
+                if let Some(uri) = req.uri() {
+                    wv.load_uri(uri.as_str());
+                }
+            }
+            None
+        });
 
         if let Some(manager) = webview.user_content_manager() {
             let script = UserScript::new(
