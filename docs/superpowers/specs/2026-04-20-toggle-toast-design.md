@@ -72,6 +72,13 @@ On keydown of `Ctrl+Alt+Shift+Escape`:
 
 ### Safety and isolation
 
+- The toast only paints from the top frame (`window.top === window`).
+  The existing hotkey handler runs in every frame via
+  `UserContentInjectedFrames::AllFrames`, which is correct for
+  capturing the key wherever focus lives, but `position: fixed`
+  inside a nested (possibly cross-origin) iframe would anchor to the
+  iframe's viewport, not the window. Iframe handlers still invoke
+  the toggle; they just don't render the pill.
 - A single guarded singleton is cached at `window.__rdpls_toast_el`.
   Repeated injections of the user script (e.g. on navigation) detect
   the existing node and reuse it.
