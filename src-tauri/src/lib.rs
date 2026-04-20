@@ -38,10 +38,29 @@ pub fn run() {
 #[cfg(target_os = "linux")]
 fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|wv| {
-        use webkit2gtk::{SettingsExt, WebViewExt};
+        use webkit2gtk::{
+            SettingsExt, UserContentInjectedFrames, UserContentManagerExt, UserScript,
+            UserScriptInjectionTime, WebViewExt,
+        };
+
         let webview = wv.inner();
+
         if let Some(settings) = webview.settings() {
             settings.set_user_agent(Some(SPOOFED_USER_AGENT));
+            settings.set_enable_developer_extras(false);
+        }
+
+        webview.connect_context_menu(|_wv, _menu, _event, _hit| true);
+
+        if let Some(manager) = webview.user_content_manager() {
+            let script = UserScript::new(
+                "window.addEventListener('wheel', function(e) { if (e.ctrlKey) { e.preventDefault(); } }, { passive: false, capture: true });",
+                UserContentInjectedFrames::AllFrames,
+                UserScriptInjectionTime::Start,
+                &[],
+                &[],
+            );
+            manager.add_script(&script);
         }
     })?;
     Ok(())
