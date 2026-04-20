@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <path d="M 36 56 L 116 120 L 36 184"
+        stroke="#1e1e1e" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 220 24 L 140 88 L 220 152"
+        stroke="#1e1e1e" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="232" y="230"
+    font-family="ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace"
+    font-size="56"
+    font-weight="700"
+    fill="#1e1e1e"
+    text-anchor="end"
+  >pls.</text>
+</svg>

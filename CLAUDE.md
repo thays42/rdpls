@@ -57,7 +57,6 @@ Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/ta
 ## Known Follow-ups
 
 - Bundle identifier is `com.rdpls.app`; the `.app` suffix warns on macOS builds. Changing it invalidates the WebKit data directory and forces a re-auth.
-- Icons are Tauri placeholders.
 - Session-drop detection, clipboard portal wiring, and status strip are Phase 3.
 
 ## Project Layout
