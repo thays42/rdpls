@@ -56,8 +56,9 @@ Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/ta
 
 ## Known Follow-ups
 
-- Bundle identifier is `com.rdpls.app`; the `.app` suffix warns on macOS builds. Changing it invalidates the WebKit data directory and forces a re-auth.
+- Bundle identifier is `com.rdpls.client`. Renamed from `com.rdpls.app` for the macOS port — `.app` collides with the bundle extension and the Tauri bundler warns on every build. Linux users re-auth once after the rename (WebKit data directory is keyed to the identifier).
 - Session-drop detection, clipboard portal wiring, and status strip are Phase 3.
+- macOS keyboard passthrough uses an `NSEvent` local monitor (`src-tauri/src/passthrough_macos.rs`) that swallows a small list of browser-like shortcuts (`Cmd+R`, `Cmd+[`, `Cmd+]` and their Shift variants) when inhibit is on, and passes everything else through. Exit on macOS is via the red traffic light — closing the window quits the app. The swallow list is intentionally narrow; see `docs/macos-keyboard-passthrough.md` and extend only with reason.
 
 ## Project Layout
 
