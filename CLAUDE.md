@@ -4,7 +4,7 @@ Dedicated RDP browser wrapper built with Tauri. Hosts Microsoft's web-based RDP 
 
 ## Status
 
-Phase 1 (scaffold, auth, passthrough basics) and Phase 2 (keyboard matrix, shortcut-inhibit) are complete. Produces installable `.deb` and `.rpm` from `cargo tauri build`. Phase 3 items (session-drop detection, clipboard portal, status strip, macOS port) remain open.
+Phase 1 (scaffold, auth, passthrough basics), Phase 2 (keyboard matrix, shortcut-inhibit), and the macOS port are complete. Produces installable `.deb` and `.rpm` on Linux and `.app` + `.dmg` on macOS from `cargo tauri build`. Remaining Phase 3 items: session-drop detection, clipboard portal wiring, status strip.
 
 ## Architecture
 
@@ -21,13 +21,13 @@ Phase 1 (scaffold, auth, passthrough basics) and Phase 2 (keyboard matrix, short
 - **Persistent cookies.** Stable WebKit data directory so auth survives across launches. Microsoft issues session-only tokens for the per-app RDP step; this requires re-auth on restart even in Firefox. Not fixable on our side.
 - **Popup → main-window redirect.** Microsoft launches RDP sessions via `window.open()`; intercept webkit2gtk's `create` signal and load the URL in the main WebView instead.
 - **Wayland-native.** No `GDK_BACKEND=x11`. Target is niri on Fedora 43. Shares GTK's existing Wayland connection via `wayland-backend::Backend::from_foreign_display` — never open a second connection, surfaces/seats wouldn't cross over.
-- **No window decorations.** `decorations(false)` — no min/max/close chrome. Compositor handles window management.
+- **Window decorations are platform-split.** Linux uses `decorations(false)` — no min/max/close chrome, compositor owns window management. macOS keeps the standard title bar; WKWebView has no compositor-level drag/resize fallback and injecting custom drag regions into Microsoft's pages isn't practical.
 - **Conditional Access passes without managed browser** — Firefox on Fedora already works, so the same UA string works here.
 
 ## Targets
 
-- **Primary:** Fedora 43, Framework 13, niri (Wayland)
-- **Secondary (future):** macOS, Mac Studio M4 Max — same codebase, separate build
+- **Linux:** Wayland-native; niri is the tested compositor. Builds on Fedora-family (dnf) and Debian-family (apt) distros. Compositor must honor `zwp_keyboard_shortcuts_inhibit_manager_v1` for full passthrough.
+- **macOS:** macOS 14+; Apple Silicon is the tested arch. Same codebase, separate build.
 
 ## Naming
 
@@ -35,11 +35,26 @@ Phase 1 (scaffold, auth, passthrough basics) and Phase 2 (keyboard matrix, short
 
 ## Build Prerequisites
 
+Stable Rust (1.77.2+) + Tauri v2 CLI on both platforms:
+
 ```bash
-# Fedora 43
+cargo install tauri-cli --version "^2"
+```
+
+Platform-specific system deps:
+
+```bash
+# Linux (Fedora / RHEL / openSUSE)
 sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel \
   javascriptcoregtk4.1-devel pango-devel cairo-devel gdk-pixbuf2-devel
-cargo install tauri-cli --version "^2"
+
+# Linux (Debian / Ubuntu)
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+  libjavascriptcoregtk-4.1-dev libpango1.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev \
+  build-essential pkg-config
+
+# macOS
+xcode-select --install
 ```
 
 ## Development Commands
@@ -48,11 +63,11 @@ Run from the repo root:
 
 ```bash
 cargo tauri dev          # Run in development mode
-cargo tauri build        # Build release binary + bundle .deb / .rpm
+cargo tauri build        # Build release binary + bundle (Linux: .deb/.rpm; macOS: .app/.dmg)
 cargo test               # Run Rust tests
 ```
 
-Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/target/release/bundle/{deb,rpm}/` (packages).
+Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/target/release/bundle/{deb,rpm,macos,dmg}/` (packages).
 
 ## Known Follow-ups
 
@@ -64,16 +79,19 @@ Release artifacts land in `src-tauri/target/release/` (binary) and `src-tauri/ta
 
 ```
 src-tauri/
-  src/main.rs                 # Binary entry → calls rdpls_lib::run
-  src/lib.rs                  # Tauri builder, window creation, webkit2gtk setup
-  src/keyboard.rs             # Injected JS for Ctrl+Alt+Shift+Escape, rdpls_exit command
-  src/shortcuts_inhibit.rs    # Wayland shortcut-inhibit protocol wiring (Linux only)
-  Cargo.toml                  # Rust dependencies
-  tauri.conf.json             # Tauri config (window, bundle, CSP)
-  capabilities/default.json   # Tauri v2 capability file
+  src/main.rs                  # Binary entry → calls rdpls_lib::run
+  src/lib.rs                   # Tauri builder, window creation, per-platform WebView setup
+  src/keyboard.rs              # Injected JS: escape hotkey + toast (Linux + macOS), rdpls_exit
+  src/shortcuts_inhibit.rs     # Linux only: Wayland shortcut-inhibit protocol wiring
+  src/passthrough_macos.rs     # macOS only: NSEvent local monitor + rdpls_toggle_passthrough
+  Cargo.toml                   # Rust dependencies (target-gated per-OS blocks)
+  tauri.conf.json              # Tauri config (window, bundle targets, CSP)
+  capabilities/default.json    # Tauri v2 capability file
 src/
-  index.html                  # Minimal loader; WebView navigates to myapps.microsoft.com
+  index.html                   # Minimal loader; WebView navigates to myapps.microsoft.com
 docs/
-  keyboard-matrix.md          # Keyboard passthrough test results
-  plans/                      # Implementation plans
+  keyboard-matrix.md           # Linux keyboard passthrough test results
+  macos-keyboard-passthrough.md  # macOS passthrough design + OS-reserved key list
+  macos-karabiner.md           # Karabiner-Elements rules for Mac → Windows key remapping
+  plans/                       # Implementation plans
 ```
