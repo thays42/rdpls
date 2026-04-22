@@ -2,112 +2,95 @@
 
 A dedicated browser for Microsoft's web-based RDP client (Windows 365 / AVD).
 
-Microsoft's RDP experience is browser-only — no native client, no `.rdp` file. That's fine, except browsers hijack keys the remote desktop needs: Ctrl+W closes a tab, F5 reloads the page, F11 fullscreens the wrong layer, Alt+Tab switches windows. `rdpls` is a minimal Tauri wrapper around the same web session that gets out of the way: no menus, no browser accelerators, no chrome. Keystrokes pass through to the remote client.
+Microsoft's RDP experience is browser-only — no native client, no `.rdp` file. That's fine, except browsers hijack keys the remote desktop needs: Ctrl+W closes a tab, F5 reloads the page, F11 fullscreens the wrong layer, Alt+Tab switches windows. `rdpls` gets out of the way: no menus, no browser accelerators, no chrome. Keystrokes pass through to the remote client.
 
 Pronounced "R-D-please."
 
 ## Status
 
-Works end-to-end on both platforms:
+Works end-to-end on both platforms, with different host stacks:
 
-- **Linux (Wayland):** full compositor-level passthrough via `zwp_keyboard_shortcuts_inhibit_manager_v1` — Alt+Tab, Super, etc. reach the remote on compositors that honor the protocol.
-- **macOS:** in-window passthrough via an `NSEvent` local monitor that swallows a narrow list of WKWebView accelerators (`Cmd+R`, `Cmd+[`, `Cmd+]` and Shift variants) so they don't reload or navigate the outer page. OS-reserved keys (`Cmd+Tab`, `Cmd+Space`, Mission Control, etc.) are unreachable by any application; remap on the macOS side if you need them as Windows shortcuts.
+- **Linux (Wayland):** Firefox Developer Edition in `--kiosk` + sideloaded MV3 WebExtension. Passthrough via the browser Keyboard Lock API — Firefox requests `zwp_keyboard_shortcuts_inhibit_manager_v1` and suppresses its own chrome shortcuts, so Alt+Tab, Super, Ctrl+W, F11, etc. all reach the remote. Single-user build — no packaging.
+- **macOS:** Tauri v2 + WKWebView with an `NSEvent` local monitor that swallows a narrow list of WKWebView accelerators (`Cmd+R`, `Cmd+[`, `Cmd+]` and Shift variants). OS-reserved keys (`Cmd+Tab`, `Cmd+Space`, Mission Control, etc.) remain unreachable by any application; remap on the macOS side if you need them as Windows shortcuts.
 
 Both platforms share:
 
 - Microsoft auth including MFA
-- Persistent outer auth across launches (the per-app session token is session-only by Microsoft's design; Firefox has the same behavior)
+- Persistent outer auth across launches (the per-app session token is session-only by Microsoft's design; Firefox behaves the same way)
 - Full keyboard passthrough of normal and browser-hijacked keys
-- Popup/new-window redirect into the main WebView (Microsoft launches RDP sessions via `window.open`)
-- UA spoof to avoid the "unsupported browser" page
-- No window chrome beyond what the platform requires (Linux: decorationless; macOS: keeps the title bar so drag/resize still work)
+- Popup / new-window redirect into the main view (Microsoft launches RDP sessions via `window.open`)
+- No unnecessary window chrome
 
 ## Install
 
-### From packaged artifacts
+### Linux (from source — the only path)
 
-After `cargo tauri build`:
+1. **Install Firefox Developer Edition** once from Mozilla:
 
-```bash
-# macOS (Apple Silicon)
-open src-tauri/target/release/bundle/dmg/rdpls_0.1.0_aarch64.dmg
-# drag rdpls.app into /Applications
+   ```bash
+   mkdir -p ~/.local/opt && cd ~/.local/opt
+   curl -L -o firefox-dev.tar.xz 'https://download.mozilla.org/?product=firefox-devedition-latest-ssl&os=linux64&lang=en-US'
+   tar -xJf firefox-dev.tar.xz && mv firefox firefox-dev && rm firefox-dev.tar.xz
+   ```
 
-# Fedora / RHEL
-sudo dnf install src-tauri/target/release/bundle/rpm/rdpls-0.1.0-1.x86_64.rpm
+   (Dev Edition is required because it permits sideloaded unsigned extensions. Release Firefox refuses them unconditionally.)
 
-# Debian / Ubuntu
-sudo dpkg -i src-tauri/target/release/bundle/deb/rdpls_0.1.0_amd64.deb
-```
+2. **Optional — for the extension dev loop:**
 
-### From source
+   ```bash
+   npm install -g web-ext
+   ```
 
-Both platforms need a stable Rust toolchain (1.77.2 or newer; install via [rustup](https://rustup.rs)) and the Tauri v2 CLI:
+3. **Install rdpls:**
 
-```bash
-cargo install tauri-cli --version "^2"
-```
+   ```bash
+   git clone <this repo> && cd rdpls
+   make install
+   ```
 
-#### Linux
+   This seeds a dedicated profile at `~/.local/share/rdpls/profile/`, symlinks the extension into it, and writes a `.desktop` entry at `~/.local/share/applications/rdpls.desktop`. Launch via your compositor's launcher or:
 
-Wayland-native build — no `GDK_BACKEND=x11`. You need WebKitGTK 4.1 and GTK 3 development headers, plus the usual graphics/text deps.
+   ```bash
+   ~/.local/opt/firefox-dev/firefox --profile ~/.local/share/rdpls/profile --kiosk --no-remote --new-instance https://myapps.microsoft.com
+   ```
 
-```bash
-# Fedora / RHEL / openSUSE (dnf/zypper)
-sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel \
-  javascriptcoregtk4.1-devel pango-devel cairo-devel gdk-pixbuf2-devel
+Compositor-level keys pass through if your Wayland compositor implements `zwp_keyboard_shortcuts_inhibit_manager_v1`. niri is tested; most modern compositors support it. Without it, Alt+Tab / Super stay with the compositor and the rest of the passthrough still works.
 
-# Debian / Ubuntu (apt)
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-  libjavascriptcoregtk-4.1-dev libpango1.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev \
-  build-essential pkg-config
-```
+### macOS (from source)
 
-Compositor-level keyboard passthrough requires a Wayland compositor that implements `zwp_keyboard_shortcuts_inhibit_manager_v1`. niri is tested; other compositors may or may not honor the protocol. Without it, Alt+Tab / Super stay with the compositor and the rest of the passthrough still works.
-
-#### macOS
-
-Apple Silicon is tested; Intel should build from the same source but isn't regularly verified. Requires the Xcode Command Line Tools for the Apple SDK headers and linker:
+Requires a stable Rust toolchain (1.77.2+; install via [rustup](https://rustup.rs)), the Xcode Command Line Tools, and the Tauri v2 CLI:
 
 ```bash
 xcode-select --install
+cargo install tauri-cli --version "^2"
 ```
 
-#### Build + run
-
-Same on both platforms, from the repo root:
+Build and install:
 
 ```bash
-cargo tauri dev          # run against the dev WebView
-cargo tauri build        # release binary + installable bundle
+cargo tauri build            # .app + .dmg in src-tauri/target/release/bundle/
+make install                 # copies .app into /Applications/
 ```
 
-Bundles land in:
-
-- Linux: `src-tauri/target/release/bundle/{deb,rpm}/`
-- macOS: `src-tauri/target/release/bundle/{macos,dmg}/` (`.app` + `.dmg`)
+Or `cargo tauri dev` for a live dev session.
 
 ## Usage
 
-Launch `rdpls`. The WebView opens `https://myapps.microsoft.com`. Log in, click through to your Windows 365 / AVD app, and the session opens in the same window.
+Launch `rdpls`. The browser opens `https://myapps.microsoft.com`. Log in, click through to your Windows 365 / AVD app, and the session opens in the same window.
 
 ### Local keys
 
-`Ctrl+Alt+Shift+.` toggles keyboard passthrough, and `Ctrl+Alt+Shift+F` toggles fullscreen. The toast tells you which state you're in.
+**Linux** (chord set handled by the WebExtension):
 
-- **Keys → Remote** (default): the remote session gets the keys.
-  - On Linux, the Wayland compositor inhibit is on — Alt+Tab and Super pass through too.
-  - On macOS, the `NSEvent` monitor is installed — WKWebView accelerators like `Cmd+R` are swallowed so they don't reload the page.
-- **Keys → Local**: the local environment handles its bindings again.
-  - On Linux, useful when you want to Alt+Tab out of rdpls without closing it.
-  - On macOS, useful if you need the WebView's own `Cmd+R` / `Cmd+F` / back/forward.
+- `Ctrl+Alt+Shift+.` — toggle keyboard lock. On: compositor and browser chords both reach the remote (Alt+Tab, Super, Ctrl+W, F11, …). Off: local environment owns them again. A transient toast shows the resulting state.
+- `Ctrl+Alt+Shift+Q` — quit rdpls.
+- `Ctrl+Alt+Shift+/` — safety-net unconditional unlock if you ever get stuck in lock-on mode.
 
-Everything else is always a remote key.
+**macOS** (same toggle chord, different mechanism):
 
-### Closing the app
-
-- **Linux:** no title-bar close button. Use your compositor's close binding (e.g. `Mod+Q` in niri's default config).
-- **macOS:** click the red traffic light. Closing the window quits the app.
+- `Ctrl+Alt+Shift+.` — toggle the `NSEvent` monitor. On: WKWebView accelerators like `Cmd+R` are swallowed. Off: back/forward, reload, find work again.
+- `Ctrl+Alt+Shift+F` — toggle fullscreen.
+- Quit via the red traffic light — closing the window quits the app.
 
 ### macOS: Karabiner rules for Windows-style shortcuts
 
@@ -115,30 +98,39 @@ macOS sends `Cmd` where Windows expects `Ctrl`, and the web RDP client doesn't t
 
 ## Known limitations
 
-- **Session-level auth on each restart.** Microsoft issues short-lived per-app tokens for the RDP session itself; these are cleared when the WebView closes and cannot be persisted. This is intrinsic to Microsoft's flow — Firefox behaves the same way if fully closed. The outer `myapps.microsoft.com` auth does persist.
-- **Linux: Alt+Tab / Super require the inhibit to be on.** The shortcut-inhibit protocol is compositor-dependent. niri supports it natively. Other Wayland compositors may not; in that case those keys stay with the compositor.
-- **macOS: OS-reserved keys cannot reach the remote.** `Cmd+Tab`, `Cmd+Space`, `Ctrl+↑/↓/←/→` (Mission Control / Spaces), the F3/F4 keys, and media/brightness keys are captured by macOS below the application layer. Remap at System Settings → Keyboard or via `hidutil` if you need them routed to the remote. The Karabiner rules above cover the in-window cases; OS-level interception is outside what an app can do.
+- **Session-level auth on each restart.** Microsoft issues short-lived per-app tokens for the RDP session itself; these are cleared when the browser closes and cannot be persisted. This is intrinsic to Microsoft's flow — Firefox behaves the same way if fully closed. The outer `myapps.microsoft.com` auth does persist.
+- **Linux: Alt+Tab / Super require lock to be on.** The shortcut-inhibit protocol is compositor-dependent. niri supports it natively; most modern compositors do.
+- **macOS: OS-reserved keys cannot reach the remote.** `Cmd+Tab`, `Cmd+Space`, `Ctrl+↑/↓/←/→` (Mission Control / Spaces), F3/F4, media/brightness keys are captured by macOS below the application layer. Remap at System Settings → Keyboard or via `hidutil`. Karabiner covers the in-window cases; OS-level interception is outside what an app can do.
 - **macOS: the Win/meta key does not reach the remote.** Microsoft's web RDP client drops the Win/`metaKey` modifier across all platforms. Use `Alt+Home` as the Start-menu substitute.
 
 ## Targets
 
-- **Linux:** Wayland compositor that honors `zwp_keyboard_shortcuts_inhibit_manager_v1` for full passthrough (niri tested; others may partially work). Builds on Fedora-family and Debian-family distros; see the build section above.
+- **Linux:** Wayland compositor that honors `zwp_keyboard_shortcuts_inhibit_manager_v1` (niri tested). Firefox Developer Edition required.
 - **macOS:** macOS 14+, Apple Silicon tested. Intel should build from the same source.
 
 ## Project layout
 
 ```
+src-firefox/
+  extension/
+    manifest.json                # MV3
+    background.js                # quit + lock-state tracking
+    content.js                   # all frames: quit chord, window.open shim, toast DOM
+    content-fullscreen.js        # top frame only: Fullscreen API + Keyboard Lock toggle
+  profile/
+    user.js                      # seeded prefs
+Makefile                          # Linux install/uninstall/dev + macOS install/build
 src-tauri/
-  src/lib.rs                   # Tauri app, window + platform-specific WebView setup
-  src/keyboard.rs              # Injected JS (escape hotkey, toast, macOS popup redirect)
-  src/shortcuts_inhibit.rs     # Linux: Wayland shortcut-inhibit protocol wiring
-  src/passthrough_macos.rs     # macOS: NSEvent local monitor
+  src/lib.rs                   # Tauri app, window, WKWebView
+  src/keyboard.rs              # Injected JS (chord, toast, popup redirect)
+  src/passthrough_macos.rs     # NSEvent local monitor
   tauri.conf.json              # Bundle + window config
 src/
-  index.html                   # Empty loader (WebView navigates out immediately)
+  index.html                   # macOS loader
 docs/
-  keyboard-matrix.md           # Linux key passthrough test results
+  firefox-keyboard-flow.md     # Linux Keyboard Lock findings + reference
   macos-keyboard-passthrough.md  # macOS passthrough design + what's reachable
-  macos-karabiner.md           # Ready-to-paste Karabiner rules
-  plans/                       # Implementation plans
+  macos-karabiner.md             # Ready-to-paste Karabiner rules
+  superpowers/specs/             # Design specs
+  superpowers/plans/             # Implementation plans
 ```
