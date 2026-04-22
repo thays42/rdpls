@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=rdpls
+GenericName=RDP Browser
+Comment=Dedicated RDP browser wrapper (Windows 365 / AVD)
+Exec=rdpls
+Icon=rdpls
+Terminal=false
+Categories=Utility;Network;RemoteAccess;
+StartupNotify=true

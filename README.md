@@ -50,18 +50,22 @@ cargo install tauri-cli --version "^2"
 
 #### Linux
 
-Wayland-native build — no `GDK_BACKEND=x11`. You need WebKitGTK 4.1 and GTK 3 development headers, plus the usual graphics/text deps.
+Wayland-native build — no `GDK_BACKEND=x11`. You need GTK 4 and WebKitGTK 6.0 development headers, plus the usual graphics/text deps and the `cargo-deb` / `cargo-generate-rpm` bundlers.
 
 ```bash
 # Fedora / RHEL / openSUSE (dnf/zypper)
-sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel \
-  javascriptcoregtk4.1-devel pango-devel cairo-devel gdk-pixbuf2-devel
+sudo dnf install gtk4-devel webkitgtk6.0-devel libsoup3-devel \
+  pango-devel cairo-devel gdk-pixbuf2-devel
 
 # Debian / Ubuntu (apt)
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-  libjavascriptcoregtk-4.1-dev libpango1.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev \
+sudo apt install libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev \
+  libpango1.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev \
   build-essential pkg-config
+
+cargo install cargo-deb cargo-generate-rpm
 ```
+
+The Linux binary is a direct gtk4-rs + webkit6 app under `src-linux/` (not a Tauri/wry WebView — see "Project layout" and `CLAUDE.md` for the why).
 
 Compositor-level keyboard passthrough requires a Wayland compositor that implements `zwp_keyboard_shortcuts_inhibit_manager_v1`. niri is tested; other compositors may or may not honor the protocol. Without it, Alt+Tab / Super stay with the compositor and the rest of the passthrough still works.
 
@@ -75,16 +79,21 @@ xcode-select --install
 
 #### Build + run
 
-Same on both platforms, from the repo root:
+Platform-specific, from the repo root:
 
 ```bash
+# Linux
+cargo run --release -p rdpls-linux   # run in place
+make build                           # release binary + .deb + .rpm
+
+# macOS
 cargo tauri dev          # run against the dev WebView
 cargo tauri build        # release binary + installable bundle
 ```
 
 Bundles land in:
 
-- Linux: `src-tauri/target/release/bundle/{deb,rpm}/`
+- Linux: `target/debian/rdpls_*.deb` and `target/generate-rpm/rdpls-*.rpm`
 - macOS: `src-tauri/target/release/bundle/{macos,dmg}/` (`.app` + `.dmg`)
 
 ## Usage
@@ -127,15 +136,23 @@ macOS sends `Cmd` where Windows expects `Ctrl`, and the web RDP client doesn't t
 
 ## Project layout
 
+Cargo workspace with per-platform crates — Linux runs a direct gtk4-rs + webkit6 app (no Tauri), macOS stays on Tauri.
+
 ```
-src-tauri/
-  src/lib.rs                   # Tauri app, window + platform-specific WebView setup
-  src/keyboard.rs              # Injected JS (escape hotkey, toast, macOS popup redirect)
-  src/shortcuts_inhibit.rs     # Linux: Wayland shortcut-inhibit protocol wiring
-  src/passthrough_macos.rs     # macOS: NSEvent local monitor
+Cargo.toml                     # Workspace (default-members = ["src-linux"])
+src-linux/                     # Linux binary (gtk4-rs + webkit6 + wayland-client)
+  Cargo.toml                   # incl. cargo-deb / cargo-generate-rpm metadata
+  src/main.rs                  # gtk::Application + ApplicationWindow + WebView
+  src/keyboard.rs              # Injected JS (hotkey chord + toast, webkit6 IPC)
+  src/shortcuts_inhibit.rs     # Wayland shortcut-inhibit protocol wiring
+  assets/rdpls.desktop         # XDG desktop entry (installed by cargo-deb/-rpm)
+src-tauri/                     # macOS binary (Tauri v2 + WKWebView)
+  src/lib.rs                   # Tauri app, window + WebView setup
+  src/keyboard.rs              # Injected JS (macOS init script + Tauri commands)
+  src/passthrough_macos.rs     # NSEvent local monitor
   tauri.conf.json              # Bundle + window config
 src/
-  index.html                   # Empty loader (WebView navigates out immediately)
+  index.html                   # Empty loader (macOS WebView navigates out immediately)
 docs/
   keyboard-matrix.md           # Linux key passthrough test results
   macos-keyboard-passthrough.md  # macOS passthrough design + what's reachable

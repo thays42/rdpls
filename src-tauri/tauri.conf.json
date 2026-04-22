@@ -15,7 +15,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm", "app", "dmg"],
+    "targets": ["app", "dmg"],
     "category": "Utility",
     "shortDescription": "Dedicated RDP browser wrapper",
     "longDescription": "Hosts Microsoft's web-based RDP client (Windows 365 / AVD) in a minimal native WebView with full keyboard passthrough.",

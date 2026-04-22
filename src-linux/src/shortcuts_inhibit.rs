@@ -1,23 +1,24 @@
-//! Wayland keyboard-shortcuts-inhibit integration for rdpls.
+//! Wayland keyboard-shortcuts-inhibit integration for rdpls (GTK4 port).
 //!
 //! Uses the `zwp_keyboard_shortcuts_inhibit_manager_v1` unstable protocol to
-//! ask the compositor (niri on the primary target) to stop eating keys while
-//! rdpls has focus. Alt+Tab, Super, etc. then reach the remote RDP client.
-//!
-//! niri supports this protocol automatically — we just ask and it honors.
-//! Users have a standard escape hatch via niri's `toggle-keyboard-shortcuts-inhibit`
-//! action if they bind it (default unbound).
+//! ask the compositor (niri on the primary target, GNOME/Mutter also honored)
+//! to stop eating keys while rdpls has focus. Alt+Tab, Super, etc. then reach
+//! the remote RDP client.
 //!
 //! We share GTK's existing Wayland connection via `Backend::from_foreign_display`
 //! and dispatch our protocol objects onto a dedicated queue. We never dispatch
 //! incoming events on that queue (GTK owns the main loop), we only flush our
 //! outgoing requests. The inhibitor & manager don't send events we need to
-//! act on for our purposes.
+//! act on.
+//!
+//! Ported from the GTK3 version that lived in `src-tauri/src/shortcuts_inhibit.rs`.
+//! The protocol plumbing is unchanged; only the surface/seat extraction moved
+//! from `gdk_wayland_window_*` to `gdk_wayland_surface_*` for GTK4.
 
 use std::os::raw::c_void;
 use std::sync::Mutex;
 
-use glib::translate::ToGlibPtr;
+use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 
 use once_cell::sync::Lazy;
@@ -95,33 +96,21 @@ unsafe impl Send for InhibitState {}
 
 static STATE: Lazy<Mutex<Option<InhibitState>>> = Lazy::new(|| Mutex::new(None));
 
-/// Install the initial inhibitor on the given Tauri WebviewWindow's underlying
-/// GTK window. No-op on non-Linux or if the Wayland plumbing is unavailable
-/// (e.g. running under XWayland, or the compositor doesn't advertise the
-/// inhibit manager global).
-pub fn install(webview_window: &tauri::WebviewWindow) -> tauri::Result<()> {
-    webview_window.with_webview(|wv| match setup(&wv) {
+/// Install the initial inhibitor on the given realized GTK4 window. No-op if
+/// the Wayland plumbing is unavailable (running under XWayland, or the
+/// compositor doesn't advertise the inhibit manager global).
+pub fn install(window: &gtk::ApplicationWindow) {
+    match setup(window) {
         Some(()) => log::info!("shortcuts-inhibit: installed"),
         None => log::warn!("shortcuts-inhibit: not available"),
-    })
+    }
 }
 
-fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
-    use glib::object::Cast;
+fn setup(window: &gtk::ApplicationWindow) -> Option<()> {
+    let surface = window.surface()?;
+    let display = surface.display();
 
-    let webview = wv.inner();
-    let widget = webview.upcast_ref::<gtk::Widget>();
-
-    let toplevel = widget.toplevel()?;
-    let gtk_window = toplevel.downcast_ref::<gtk::Window>()?;
-
-    if !gtk_window.is_realized() {
-        gtk_window.realize();
-    }
-    let gdk_window = gtk_window.window()?;
-    let gdk_display = gdk_window.display();
-
-    let raw_display: *mut gdk::ffi::GdkDisplay = gdk_display.to_glib_none().0;
+    let raw_display: *mut gdk::ffi::GdkDisplay = display.to_glib_none().0;
     let wl_display_ptr: *mut c_void = unsafe {
         gdk_wayland_sys::gdk_wayland_display_get_wl_display(raw_display as *mut _)
     } as *mut c_void;
@@ -129,19 +118,19 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
         return None;
     }
 
-    let raw_window: *mut gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
+    let raw_surface: *mut gdk::ffi::GdkSurface = surface.to_glib_none().0;
     let wl_surface_ptr: *mut c_void = unsafe {
-        gdk_wayland_sys::gdk_wayland_window_get_wl_surface(raw_window as *mut _)
+        gdk_wayland_sys::gdk_wayland_surface_get_wl_surface(raw_surface as *mut _)
     } as *mut c_void;
     if wl_surface_ptr.is_null() {
         return None;
     }
 
-    let gdk_seat = gdk_display.default_seat()?;
+    let gdk_seat = display.default_seat()?;
     let raw_seat: *mut gdk::ffi::GdkSeat = gdk_seat.to_glib_none().0;
-    let wl_seat_ptr: *mut c_void =
-        unsafe { gdk_wayland_sys::gdk_wayland_seat_get_wl_seat(raw_seat as *mut _) }
-            as *mut c_void;
+    let wl_seat_ptr: *mut c_void = unsafe {
+        gdk_wayland_sys::gdk_wayland_seat_get_wl_seat(raw_seat as *mut _)
+    } as *mut c_void;
     if wl_seat_ptr.is_null() {
         return None;
     }
@@ -159,20 +148,20 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
 
     let surface_id =
         unsafe { ObjectId::from_ptr(WlSurface::interface(), wl_surface_ptr as *mut _) }.ok()?;
-    let surface = WlSurface::from_id(&conn, surface_id).ok()?;
+    let wl_surface = WlSurface::from_id(&conn, surface_id).ok()?;
 
     let seat_id =
         unsafe { ObjectId::from_ptr(WlSeat::interface(), wl_seat_ptr as *mut _) }.ok()?;
     let seat = WlSeat::from_id(&conn, seat_id).ok()?;
 
-    let inhibitor = manager.inhibit_shortcuts(&surface, &seat, &qh, ());
+    let inhibitor = manager.inhibit_shortcuts(&wl_surface, &seat, &qh, ());
     conn.flush().ok()?;
 
     *STATE.lock().unwrap() = Some(InhibitState {
         conn,
         qh,
         manager,
-        surface,
+        surface: wl_surface,
         seat,
         inhibitor: Some(inhibitor),
         _queue: queue,
@@ -181,7 +170,8 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
     Some(())
 }
 
-/// Toggle the inhibitor on/off. Invoked by the Ctrl+Alt+Shift+Escape hotkey.
+/// Toggle the inhibitor on/off. Returns the new state (true = now inhibiting).
+/// Invoked by the `rdpls_toggle_inhibit` script-message handler.
 pub fn toggle() -> bool {
     let mut guard = STATE.lock().unwrap();
     let Some(state) = guard.as_mut() else {
@@ -201,11 +191,9 @@ pub fn toggle() -> bool {
     };
 
     let _ = state.conn.flush();
-    log::info!("shortcuts-inhibit: now {}", if now_inhibiting { "ON" } else { "OFF" });
+    log::info!(
+        "shortcuts-inhibit: now {}",
+        if now_inhibiting { "ON" } else { "OFF" }
+    );
     now_inhibiting
-}
-
-#[tauri::command]
-pub fn rdpls_toggle_inhibit() -> bool {
-    toggle()
 }

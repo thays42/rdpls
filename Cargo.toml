@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "src-linux"]
+# `cargo build` from the repo root builds only the Linux crate. The macOS Tauri
+# crate is built via `cargo tauri build` (inside src-tauri/) and pulls in wry
+# which depends on webkit2gtk-4.1 — we don't want that on Linux dev machines.
+default-members = ["src-linux"]
+
