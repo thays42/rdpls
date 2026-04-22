@@ -23,6 +23,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             keyboard::rdpls_exit,
+            keyboard::rdpls_toggle_fullscreen,
             #[cfg(target_os = "linux")]
             shortcuts_inhibit::rdpls_toggle_inhibit,
             #[cfg(target_os = "macos")]
@@ -44,13 +45,20 @@ pub fn run() {
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("rdpls")
                 .inner_size(1280.0, 800.0)
-                .resizable(true);
+                .resizable(true)
+                .fullscreen(true);
 
-            // Linux: no chrome — the compositor (niri) owns window management
-            // and decorations(false) is fine because drag/resize are handled
-            // at the compositor layer.
+            // Linux: drop chrome only on compositors that own window
+            // management for undecorated surfaces (niri). GNOME/Mutter
+            // expects CSD and offers no drag fallback, so an undecorated
+            // window there is stuck in place — fall back to a normal
+            // titlebar everywhere else.
             #[cfg(target_os = "linux")]
-            let builder = builder.decorations(false);
+            let builder = if compositor_owns_decorations() {
+                builder.decorations(false)
+            } else {
+                builder
+            };
 
             // macOS: keep standard decorations — the window needs a real title
             // bar for drag/resize. `decorations(false)` leaves the window
@@ -130,7 +138,7 @@ fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
             manager.add_script(&zoom_script);
 
             let escape_script = UserScript::new(
-                keyboard::ESCAPE_HOTKEY_SCRIPT,
+                keyboard::HOTKEY_SCRIPT,
                 UserContentInjectedFrames::AllFrames,
                 UserScriptInjectionTime::End,
                 &[],
@@ -145,4 +153,58 @@ fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
 #[cfg(not(target_os = "linux"))]
 fn configure_webview(_window: &tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn compositor_owns_decorations() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| desktop_owns_decorations(&v))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_owns_decorations(xdg_current_desktop: &str) -> bool {
+    xdg_current_desktop
+        .split(':')
+        .any(|part| part.eq_ignore_ascii_case("niri"))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::desktop_owns_decorations;
+
+    #[test]
+    fn niri_owns_decorations() {
+        assert!(desktop_owns_decorations("niri"));
+    }
+
+    #[test]
+    fn niri_in_colon_list_owns_decorations() {
+        assert!(desktop_owns_decorations("niri:wlroots"));
+        assert!(desktop_owns_decorations("wlroots:niri"));
+    }
+
+    #[test]
+    fn case_insensitive() {
+        assert!(desktop_owns_decorations("Niri"));
+        assert!(desktop_owns_decorations("NIRI"));
+    }
+
+    #[test]
+    fn gnome_does_not_own_decorations() {
+        assert!(!desktop_owns_decorations("GNOME"));
+        assert!(!desktop_owns_decorations("ubuntu:GNOME"));
+    }
+
+    #[test]
+    fn no_substring_match() {
+        // "niri" appearing inside another token should not count.
+        assert!(!desktop_owns_decorations("myniri"));
+        assert!(!desktop_owns_decorations("niri-ish"));
+    }
+
+    #[test]
+    fn empty_is_false() {
+        assert!(!desktop_owns_decorations(""));
+    }
 }

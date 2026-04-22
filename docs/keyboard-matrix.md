@@ -34,11 +34,14 @@ it is by default at startup).
 | Alt+Tab         | ✅                           |
 | Super / Win     | ✅                           |
 
-Toggle the inhibitor with **Ctrl+Alt+Shift+Escape**. When OFF, niri reclaims
-these keys (useful for intentional window switching).
+Toggle the inhibitor with **Ctrl+Alt+Shift+.** When OFF, the compositor reclaims
+these keys (useful for intentional window switching). Period rather than Escape
+because GNOME/Mutter eats modifier+Escape when inhibit is OFF, making it
+impossible to toggle back.
 
 ## rdpls-specific
 
 | Key                      | Behavior |
 |--------------------------|----------|
-| Ctrl+Alt+Shift+Escape    | Toggle shortcut-inhibit on/off |
+| Ctrl+Alt+Shift+.         | Toggle shortcut-inhibit on/off |
+| Ctrl+Alt+Shift+F         | Toggle fullscreen              |

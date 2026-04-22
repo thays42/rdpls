@@ -274,7 +274,7 @@ objects — paste them as siblings of your existing rules, not inside one.
 
 ## A note on the rdpls passthrough toggle
 
-The `Ctrl+Alt+Shift+Escape` toggle (see `docs/macos-keyboard-passthrough.md`)
+The `Ctrl+Alt+Shift+.` toggle (see `docs/macos-keyboard-passthrough.md`)
 is independent of Karabiner. When inhibit is **off**, the `NSEvent` monitor
 is not installed — all keys reach WKWebView unchanged, including the Ctrl-ified
 output of these Karabiner rules. When inhibit is **on**, the monitor swallows

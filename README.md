@@ -91,9 +91,9 @@ Bundles land in:
 
 Launch `rdpls`. The WebView opens `https://myapps.microsoft.com`. Log in, click through to your Windows 365 / AVD app, and the session opens in the same window.
 
-### The one local key
+### Local keys
 
-`Ctrl+Alt+Shift+Escape` toggles keyboard passthrough. The toast tells you which side owns the keys.
+`Ctrl+Alt+Shift+.` toggles keyboard passthrough, and `Ctrl+Alt+Shift+F` toggles fullscreen. The toast tells you which state you're in.
 
 - **Keys → Remote** (default): the remote session gets the keys.
   - On Linux, the Wayland compositor inhibit is on — Alt+Tab and Super pass through too.

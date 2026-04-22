@@ -54,7 +54,7 @@ cannot consume them, so they're not useful here.
 
 ## What the toggle does on macOS
 
-On Linux, `Ctrl+Alt+Shift+Escape` toggles the compositor inhibit. The natural
+On Linux, `Ctrl+Alt+Shift+.` toggles the compositor inhibit. The natural
 Mac analogue is toggling the local `NSEvent` monitor:
 
 - **Inhibit ON** (default): monitor installed, WKWebView accelerators and
@@ -65,11 +65,9 @@ Mac analogue is toggling the local `NSEvent` monitor:
 The toggle does *not* affect OS-reserved keys — those are never ours to
 forward. The toast wording matches Linux exactly, so muscle memory carries.
 
-Ownership of the hotkey itself: still `Ctrl+Alt+Shift+Escape`, injected as JS
-in the WebView (same as Linux). The JS calls a new Tauri command
-`rdpls_toggle_passthrough` on macOS instead of `rdpls_toggle_inhibit`. Until
-the monitor is implemented, the Mac build wires the same hotkey to
-`rdpls_exit` so the decorationless window has a way out.
+Ownership of the hotkey itself: `Ctrl+Alt+Shift+.`, injected as JS in the
+WebView (same as Linux). The JS calls `rdpls_toggle_passthrough` on macOS
+instead of `rdpls_toggle_inhibit`.
 
 ## Implementation (shipped)
 
