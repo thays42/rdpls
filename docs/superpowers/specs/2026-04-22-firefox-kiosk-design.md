@@ -43,6 +43,10 @@ working, with a chord to toggle back out.
   status is still a future item.
 - No bundling of Firefox itself. The user installs Firefox Developer
   Edition once from Mozilla's tarball.
+- No independently-toggled fullscreen. Fullscreen API state is
+  coupled to lock state (entered on lock-on, exited on lock-off) —
+  not exposed as its own chord. The `--kiosk` window itself is always
+  fullscreen regardless.
 
 ## Design
 
@@ -83,14 +87,18 @@ working, with a chord to toggle back out.
   fullscreen" overlay; kiosk is always fullscreen so the banner is
   noise.
 - `browser.link.open_newwindow = 1` and
-  `browser.link.open_newwindow.restriction = 0` — force `window.open`
-  into the current tab. Handles Microsoft's RDP launch popup without
-  any JS on our side.
+  `browser.link.open_newwindow.restriction = 0` — redirect `window.open`
+  calls without a features string into the current tab. These prefs
+  are a **backstop**, not primary: Gecko treats a `window.open` call
+  with a features string as an explicit request for a new window and
+  bypasses the pref. The extension's `window.open` shim (below) is the
+  primary mechanism.
 - `xpinstall.signatures.required = false` — load the unsigned
   extension.
-- `app.update.auto = false`, `app.update.enabled = false`,
-  `app.update.service.enabled = false` — don't surprise the kiosk with
-  an update prompt.
+- `app.update.auto = false`, `app.update.service.enabled = false` —
+  don't surprise the kiosk with an update prompt. The exact canonical
+  set of update-suppression prefs for the targeted Firefox Dev Edition
+  build is a pre-plan verification item (see Risks).
 - `browser.startup.homepage_override.mstone = "ignore"`,
   `browser.aboutwelcome.enabled = false`,
   `browser.shell.checkDefaultBrowser = false`,
@@ -103,22 +111,36 @@ working, with a chord to toggle back out.
 ### Keyboard handling flow
 
 The flow hinges on the browser Keyboard Lock API
-(`navigator.keyboard.lock()`), which does three things at once when
-active:
+(`navigator.keyboard.lock()`). When lock is active it is **expected**
+to do all of the following; which of these actually hold in the
+targeted Firefox Dev Edition build is a pre-plan verification item
+(see Risks §1 and §2):
 
-1. Requests `zwp_keyboard_shortcuts_inhibit_manager_v1` on Firefox's
+1. Request `zwp_keyboard_shortcuts_inhibit_manager_v1` on Firefox's
    Wayland surface, so the compositor stops grabbing Super, Alt+Tab,
    and other global chords.
-2. Suppresses Firefox's own chrome shortcuts (`Ctrl+W`, `Ctrl+L`,
-   `F11`, etc.), routing those keys to content instead.
-3. Routes every key to the focused page, where the RDP client's JS
+2. Suppress Firefox's own chrome shortcuts (`Ctrl+W`, `Ctrl+L`, `F11`,
+   etc.), routing those keys to content instead. The W3C spec allows
+   the UA to define the intercepted set; Firefox's actual set is not
+   exhaustively documented and must be measured.
+3. Route every key to the focused page, where the RDP client's JS
    forwards them to the remote session.
 
 Keyboard Lock is only callable when the document is in the Fullscreen
 API state (`document.fullscreenElement !== null`), which is distinct
 from Firefox's `--kiosk` window-level fullscreen. The chord handler
-therefore enters Fullscreen API before calling `.lock()`, using the
-chord keypress as the user-activation gesture the spec requires.
+therefore enters Fullscreen API before calling `.lock()`.
+
+**User activation is the critical constraint.** Both
+`requestFullscreen()` and `lock()` require a live user-activation
+token. That token is consumed synchronously in the keydown handler
+that saw the chord; a round-trip through `browser.runtime.sendMessage`
+to the background and back to a content script loses it. The
+fullscreen-and-lock sequence therefore runs **inside the top-frame
+content script's keydown handler**, not in the background. The
+background's role is limited to (a) tracking lock state, (b) handling
+quit (no activation required), and (c) routing "show toast" messages
+to the top frame along with the new state.
 
 Chord set (both chords are `Ctrl+Alt+Shift+<key>` to stay clear of
 common compositor and Firefox bindings):
@@ -130,46 +152,70 @@ common compositor and Firefox bindings):
 
 Chord capture strategy:
 
-- Content script injected into **all frames** (`all_frames: true`).
-  Microsoft's RDP client runs inside an iframe, and key events dispatch
-  to the frame that has focus, so a top-only listener misses them.
+- Two content scripts:
+  - `content.js` runs in **all frames** (`all_frames: true`). It owns
+    chord capture inside iframes and the toast DOM. When it sees a
+    chord in a non-top frame it forwards to the top frame via
+    `browser.runtime.sendMessage` (for quit, which needs no
+    activation) or — for lock toggling — relays the chord to the top
+    frame's `content-fullscreen.js` via a `window.postMessage` into
+    the top frame. This path loses activation, so the top-frame
+    handler only uses the relayed message to update UI state after a
+    later top-frame chord press; it does not attempt `lock()` from a
+    non-top-frame origin. In practice the RDP iframe is
+    where focus lives, so a chord pressed in the iframe shows a
+    toast explaining "press Ctrl+Alt+Shift+. again with this window
+    in focus" — acceptable because once the user is in lock-off mode
+    they can click the chrome area to shift focus.
+  - `content-fullscreen.js` runs **top frame only**
+    (`all_frames: false`) and is the single place where
+    `requestFullscreen()` and `navigator.keyboard.lock()` /
+    `unlock()` are called. Its keydown handler runs synchronously
+    when the top frame has focus and preserves user activation.
 - Listeners use the **capture phase** (`addEventListener('keydown',
   handler, true)`) to fire before any page-level handler that might
   call `stopImmediatePropagation`.
-- Each listener posts to the background script via
-  `browser.runtime.sendMessage`; the background script is the single
-  owner of lock/fullscreen state and decides what to do.
-- **Safety net chord**: if the main lock-toggle chord ever stops
-  working (page takes the key in a way we can't reach, Firefox changes
-  keydown dispatch semantics), a secondary chord — `Ctrl+Alt+Shift+/`
-  — registered via the same content-script path forces lock off
-  unconditionally and shows an explanatory toast. Registered in the
-  same mechanism as the main chord, not `browser.commands`, because
-  `browser.commands` bindings are suppressed when Keyboard Lock is
-  active (the whole point of lock).
+- **Safety net chord** `Ctrl+Alt+Shift+/` bound in the top-frame
+  `content-fullscreen.js`. It calls `navigator.keyboard.unlock()` and
+  `document.exitFullscreen()` **unconditionally** — no toggle logic,
+  no state read. This is what it buys over the main chord: if the
+  extension's state tracking or the main-chord handler is broken, the
+  safety net is a dumb, single-purpose escape. (It does not add
+  coverage to sandboxed iframes the main chord can't reach; a
+  sandboxed iframe that blocks our content script is out of reach for
+  any JS-based chord. The mitigation for that case is focus: user
+  moves focus to the top frame before pressing the safety net.) Bound
+  through the same content-script mechanism rather than
+  `browser.commands`, because `browser.commands` bindings are
+  suppressed while Keyboard Lock is active.
 
-Lock toggle — ON:
+Lock toggle — ON (top frame has focus):
 
-1. Content script sees the chord, messages background.
-2. Background script posts back to the top frame to
-   `document.documentElement.requestFullscreen({ navigationUI: 'hide' })`
-   then `await navigator.keyboard.lock()`.
-3. On resolve, content script shows the "keys → remote" toast (reusing
-   the existing toast design from the gtk4-webkit6-linux branch — see
-   `docs/superpowers/specs/2026-04-20-toggle-toast-design.md` for the
-   visual and timing; the behavior is unchanged, only the host).
+1. `content-fullscreen.js` sees `Ctrl+Alt+Shift+.` in its keydown
+   capture handler.
+2. Synchronously in the same handler: `await
+   document.documentElement.requestFullscreen({ navigationUI: 'hide' })`
+   then `await navigator.keyboard.lock()`. User activation token from
+   the keypress covers both calls.
+3. On resolve: post `{ type: 'lock-state', on: true }` to the
+   background (for state tracking) and render the "keys → remote"
+   toast via the shared DOM pill (same visual and timing as
+   `docs/superpowers/specs/2026-04-20-toggle-toast-design.md` —
+   referenced spec lives on `main` and was inherited when `firefox`
+   branched from it).
 
-Lock toggle — OFF:
+Lock toggle — OFF (top frame has focus; lock is active so top frame
+receives the key):
 
-1. Content script sees the chord (still fires while lock is active —
-   that's exactly why Keyboard Lock exists, to hand keys to content).
-2. Background script asks the top frame to `navigator.keyboard.unlock()`
-   then `document.exitFullscreen()`.
-3. Content script shows the "keys → compositor" toast.
+1. `content-fullscreen.js` sees `Ctrl+Alt+Shift+.`.
+2. `await navigator.keyboard.unlock()` then
+   `await document.exitFullscreen()`.
+3. Post `{ type: 'lock-state', on: false }` to background, render
+   "keys → compositor" toast.
 
 Quit:
 
-1. Content script sees `Ctrl+Alt+Shift+Q`, messages background.
+1. Either content script sees `Ctrl+Alt+Shift+Q`, messages background.
 2. Background script calls `browser.windows.remove(windowId)` on the
    current window. With Firefox in `--kiosk` + `--no-remote`, removing
    the only window terminates the Firefox process, which quits the
@@ -177,33 +223,42 @@ Quit:
 
 ### Popup redirect
 
-Microsoft launches the RDP session via `window.open`. The
-`browser.link.open_newwindow` prefs above redirect such calls into the
-current tab at the Gecko level — no extension code required. The
-extension keeps a content-script `window.open` shim as a **backstop
-only**, in case Microsoft ever switches to a mechanism the prefs do
-not cover (e.g., an `<a target="_blank">` route that slips through).
-The shim rewrites to same-tab navigation.
+Microsoft launches the RDP session via `window.open`, typically with
+a features string (dimensions, toolbar flags). Gecko treats a features
+string as an explicit new-window request and bypasses the
+`browser.link.open_newwindow` pref, so the pref cannot be relied on as
+primary. The **primary** mechanism is a content-script `window.open`
+shim injected into all frames that rewrites the call to same-tab
+navigation (`window.location.assign(url)`). The prefs remain set as a
+backstop for any code path the shim misses (e.g., an
+`<a target="_blank">` anchor).
 
 ### Toggle toast
 
 Reuses the DOM pill from the existing design (injected element,
-transient, text-only). The content script owns it. One change: the
-toast is the extension's responsibility in every frame where the chord
-fires, but only the top frame's toast is visible to the user — the
-background script routes the "show toast" message to the top frame
-only, so an iframe chord press still produces one toast in the expected
-place.
+transient, text-only). Always rendered in the **top frame's DOM** by
+`content.js` (which runs in all frames but only renders the pill when
+`window.top === window`). State source is explicit: the toast
+message's text is determined by the `on: boolean` field included in
+the `lock-state` post from `content-fullscreen.js`. `content.js`
+subscribes to that message and renders "keys → remote" when `on` is
+true, "keys → compositor" when false. The background script is not in
+the toast critical path.
 
 ### Project layout
 
 ```
 src-firefox/
   extension/
-    manifest.json                # MV3
-    background.js                # state owner: lock/fullscreen/quit
-    content.js                   # chord listener + toast DOM
-    content-fullscreen.js        # top-frame-only: fullscreen + lock API
+    manifest.json                # MV3; browser_specific_settings.gecko.id
+                                 # = "rdpls@local" (matches profile
+                                 # extensions/ subdir name)
+    background.js                # lock-state tracking + quit handler
+    content.js                   # all frames: chord listener for Q,
+                                 # window.open shim, toast DOM (top only)
+    content-fullscreen.js        # top frame only: fullscreen-API +
+                                 # Keyboard Lock calls, posts lock-state
+                                 # messages to content.js for the toast
   profile/
     user.js                      # prefs above
     .gitignore                   # ignore runtime-only subdirs if we ever
@@ -217,40 +272,77 @@ src-tauri/                        # unchanged (macOS)
 src/                              # unchanged (macOS loader)
 ```
 
+The extension's sideload path is
+`~/.local/share/rdpls/profile/extensions/rdpls@local/` (unpacked
+directory — not `.xpi`), created by `make install` as a symlink to
+`src-firefox/extension/`. The directory name must exactly match
+`browser_specific_settings.gecko.id` for Firefox to load it.
+
 CLAUDE.md is updated as part of this work: the Linux section describes
 the Firefox-kiosk stack, not the Tauri webkit2gtk path. The gtk4
 webkit6 attempt is referenced historically only through the archived
 commit on `gtk4-webkit6-linux`.
 
-### Risks and open verifications
+### Pre-plan verifications
 
-These are testable only by running Firefox Developer Edition with the
-extension in place; flagged here so the implementation plan schedules
-them before depending on them:
+The design rests on several assumptions about Firefox behavior that
+cannot be confirmed from the spec alone. The implementation plan must
+begin with a **verification phase** that answers each item below
+before code is written against it. A wrong assumption here does not
+just cause a bug — it invalidates the architecture.
 
-1. **Keyboard Lock's Fullscreen API requirement on kiosk.** Firefox
-   may or may not treat `--kiosk` as satisfying the Fullscreen API
-   predicate. Expected: no — kiosk is window-level, the API expects an
-   explicit `requestFullscreen()` call. Mitigation baked in: the chord
-   handler calls `requestFullscreen()` before `lock()`. If this turns
-   out to be wrong, the fallback is simpler (just `lock()`).
-2. **User-activation on chord.** `requestFullscreen()` and `lock()`
-   both require user activation. The chord keypress should satisfy
-   it; if Firefox's activation tracking treats the keydown as consumed
-   by the time the promise resolves, we'll switch to a two-step
-   handler that completes synchronously in the keydown handler.
-3. **Iframe focus and chord delivery.** RDP content runs in an iframe
-   or nested iframe. `all_frames: true` content scripts should cover
-   every same-origin and cross-origin frame, but Microsoft uses a
-   sandboxed cross-origin iframe in some flows. If a frame's sandbox
-   flags prevent our content script from running, the chord won't be
-   seen there. Mitigation: the safety-net chord is bound to the top
-   frame too, so the user can always force-unlock.
-4. **`browser.windows.remove` behavior with `--kiosk --no-remote`.**
-   Expected to cleanly terminate the process. If Firefox shows a
-   "really close?" prompt or any lingering tab-close confirmation,
-   disable it via `browser.tabs.warnOnClose=false` and
-   `browser.tabs.warnOnCloseOtherTabs=false` in `user.js`.
+1. **Fullscreen API requirement for Keyboard Lock.** Does Firefox Dev
+   Edition require `document.fullscreenElement !== null` before
+   `navigator.keyboard.lock()` resolves? Test: call `lock()` from the
+   JS console in a `--kiosk` window without calling
+   `requestFullscreen()` first. If it resolves, the design simplifies
+   (drop `requestFullscreen`/`exitFullscreen` from the flow). If it
+   rejects, keep the current design.
+2. **User activation across the fullscreen-then-lock sequence.** Does
+   a single keydown's activation token cover both `await
+   requestFullscreen()` and the subsequent `await lock()`? Test in the
+   console with a keypress-triggered handler; if the second call
+   rejects for lack of activation, we need a different sequencing
+   (e.g., call `lock()` first where possible, or move to non-awaited
+   chained `.then()` to stay inside the activation frame).
+3. **Set of chrome shortcuts suppressed by Keyboard Lock.** Enumerate
+   which Firefox chrome shortcuts are actually routed to content when
+   lock is active: `Ctrl+W`, `Ctrl+L`, `Ctrl+R`, `Ctrl+T`, `Ctrl+N`,
+   `Ctrl+Q`, `F11`, `Alt+F4`, etc. Any key Firefox still intercepts
+   needs a per-key plan (either accept that it won't pass to the
+   remote, or add a content-script `preventDefault` in the capture
+   phase). Record results in `docs/firefox-keyboard-flow.md`.
+4. **Iframe chord delivery under Microsoft's RDP embed.** Confirm
+   whether Microsoft's RDP client loads in a same-origin, cross-
+   origin, or sandboxed cross-origin iframe, and whether
+   `all_frames: true` content scripts are injected into it. If the
+   iframe is sandboxed with `allow-scripts` only (no `allow-same-
+   origin`), WebExtension content scripts should still run, but this
+   needs confirmation in the running app. Record results in
+   `docs/firefox-keyboard-flow.md`. If the iframe does block content
+   scripts, the "click chrome area to escape focus" recovery in the
+   lock-on iframe fallback is also invalidated — update that flow
+   accordingly.
+5. **`browser.windows.remove` behavior on `--kiosk --no-remote`.**
+   Confirm it cleanly terminates the Firefox process with no prompt.
+   If a confirmation dialog appears, add
+   `browser.tabs.warnOnClose=false` and
+   `browser.sessionstore.resume_from_crash=false` to `user.js`.
+6. **Keyboard permission prompt.** Does `navigator.keyboard.lock()`
+   show a permission prompt on first call in Firefox? If so, the
+   profile seed needs a pre-granted permission entry or the first
+   launch needs a documented "click Allow once" step.
+7. **Canonical update-suppression prefs.** The exact set of prefs
+   that fully disable Firefox's update machinery in the targeted Dev
+   Edition build. Some legacy prefs (`app.update.enabled`) no longer
+   exist; some require policy JSON rather than prefs. Determine the
+   right set and record it in `user.js` with comments.
+8. **`window.open` features-string behavior.** Confirm that Microsoft
+   passes a features string (so the prefs really are insufficient as
+   primary) and that the content-script shim catches the call before
+   Gecko opens the new window. If the shim is too late, fall back to
+   a `browser.webRequest.onBeforeRequest` or the
+   `browser.tabs.onCreated` + redirect approach.
 
 ### Non-migration items (intentional)
 
