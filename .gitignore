@@ -2,3 +2,8 @@
 /src-tauri/target
 /src-tauri/icons/android/
 /src-tauri/icons/ios/
+
+# Firefox dev loop
+/.web-ext-storage
+/src-firefox/extension/web-ext-artifacts/
+/src-firefox/extension/*.xpi
