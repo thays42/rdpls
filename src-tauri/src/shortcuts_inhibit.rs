@@ -250,36 +250,37 @@ fn upload_keymap(kb: &ZwpVirtualKeyboardV1) -> std::io::Result<()> {
 /// Send Alt+F3 to the focused client via the virtual keyboard. No-op when
 /// the virtual-keyboard manager wasn't bound at setup.
 pub fn inject_alt_f3() {
-    let guard = STATE.lock().unwrap();
-    let Some(state) = guard.as_ref() else { return };
-    let Some(kb) = state.virtual_keyboard.as_ref() else {
-        log::warn!("inject_alt_f3: virtual keyboard unavailable");
-        return;
+    // Clone what we need and release the STATE lock before issuing Wayland
+    // requests + flush, so any future re-entrant code paths can't deadlock.
+    // Connection and virtual-keyboard proxies are Arc-backed internally.
+    let (conn, kb) = {
+        let guard = STATE.lock().unwrap();
+        let Some(state) = guard.as_ref() else { return };
+        let Some(kb) = state.virtual_keyboard.as_ref() else {
+            log::warn!("inject_alt_f3: virtual keyboard unavailable");
+            return;
+        };
+        (state.conn.clone(), kb.clone())
     };
 
-    // evdev keycodes; Wayland's virtual-keyboard protocol uses evdev codes
-    // directly (no +8 offset — that's X11 convention, not Wayland).
-    const KEY_LEFTALT: u32 = 56;
+    // evdev keycode for F3; the virtual-keyboard protocol uses raw evdev
+    // codes (no X11 +8 offset). Alt is applied via modifiers() bits, not a
+    // separate Alt_L press — that's the canonical wlroots pattern.
     const KEY_F3: u32 = 61;
     const PRESSED: u32 = 1;
     const RELEASED: u32 = 0;
     const MOD_ALT: u32 = 0x08; // Mod1
 
-    let now = || {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u32)
-            .unwrap_or(0)
-    };
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0);
 
-    let t = now();
     kb.modifiers(MOD_ALT, 0, 0, 0);
-    kb.key(t, KEY_LEFTALT, PRESSED);
-    kb.key(t.wrapping_add(1), KEY_F3, PRESSED);
-    kb.key(t.wrapping_add(2), KEY_F3, RELEASED);
-    kb.key(t.wrapping_add(3), KEY_LEFTALT, RELEASED);
+    kb.key(t, KEY_F3, PRESSED);
+    kb.key(t.wrapping_add(1), KEY_F3, RELEASED);
     kb.modifiers(0, 0, 0, 0);
-    let _ = state.conn.flush();
+    let _ = conn.flush();
 }
 
 /// Whether we currently hold an active shortcut-inhibitor. Used by the

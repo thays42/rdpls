@@ -72,15 +72,16 @@ pub fn install(webview: &webkit2gtk::WebView) {
         handle(ev)
     });
 
-    if let Some(toplevel) = webview
-        .toplevel()
-        .and_then(|t| t.downcast::<gtk::Window>().ok())
-    {
-        toplevel.connect_focus_out_event(|_, _| {
-            feed(Event::FocusLost);
-            glib::Propagation::Proceed
-        });
-    }
+    // Hook focus-out on the WebView widget directly. The toplevel window
+    // may not be set yet at install time (we run inside with_webview during
+    // window construction), and walking up to it could silently miss the
+    // hook. The widget itself emits focus-out when focus leaves its own
+    // focus-chain, which is sufficient for resetting tap state — the
+    // tracker only cares that we stop processing a partial tap.
+    webview.connect_focus_out_event(|_, _| {
+        feed(Event::FocusLost);
+        glib::Propagation::Proceed
+    });
 }
 
 fn handle(ev: Event) -> glib::Propagation {
