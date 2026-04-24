@@ -205,6 +205,18 @@ pub fn toggle() -> bool {
     now_inhibiting
 }
 
+/// Whether we currently hold an active shortcut-inhibitor. Used by the
+/// tap-tracker gating — we only consume bare Super when we know the
+/// compositor is passing it through to us.
+pub fn is_inhibiting() -> bool {
+    STATE
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| s.inhibitor.is_some())
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub fn rdpls_toggle_inhibit() -> bool {
     toggle()
