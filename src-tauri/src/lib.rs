@@ -1,4 +1,5 @@
 mod keyboard;
+mod tap_tracker;
 
 #[cfg(target_os = "linux")]
 mod shortcuts_inhibit;
