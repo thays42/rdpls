@@ -6,17 +6,12 @@
 //! `docs/superpowers/specs/2026-04-24-super-tap-start-menu-design.md` for
 //! the state machine.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum State {
+    #[default]
     Idle,
     Tracking,
     Tainted,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Idle
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
