@@ -84,9 +84,10 @@ fn feed_tracker(ev: &NSEvent) -> Option<Action> {
             .intersection(NSEventModifierFlags::DeviceIndependentFlagsMask);
         let cmd_now_held = flags.contains(NSEventModifierFlags::Command);
         if cmd_now_held {
-            // FlagsChanged doesn't carry an autorepeat bit on its own; infer
-            // it: if we're already Tracking on the same physical key, this
-            // is the OS reasserting the held state.
+            // macOS does not emit repeated FlagsChanged for held modifiers —
+            // they fire only on up/down transitions — so this branch is dead
+            // code on macOS in practice. Kept for parity with the shared
+            // tracker semantics; harmless if the behavior ever changes.
             let autorepeat = {
                 let guard = TRACKER.lock().unwrap();
                 matches!(guard.state, State::Tracking) && guard.last_down_keycode == Some(keycode)
