@@ -31,6 +31,10 @@ use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::{
     zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
     zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1,
 };
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
+    zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+};
 
 struct Sink;
 
@@ -53,6 +57,8 @@ macro_rules! noop_dispatch {
 noop_dispatch!(WlSurface);
 noop_dispatch!(WlSeat);
 noop_dispatch!(ZwpKeyboardShortcutsInhibitManagerV1);
+noop_dispatch!(ZwpVirtualKeyboardManagerV1);
+noop_dispatch!(ZwpVirtualKeyboardV1);
 
 impl Dispatch<WlRegistry, GlobalListContents> for Sink {
     fn event(
@@ -86,6 +92,7 @@ struct InhibitState {
     surface: WlSurface,
     seat: WlSeat,
     inhibitor: Option<ZwpKeyboardShortcutsInhibitorV1>,
+    virtual_keyboard: Option<ZwpVirtualKeyboardV1>,
     _queue: EventQueue<Sink>,
 }
 
@@ -166,6 +173,21 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
     let seat = WlSeat::from_id(&conn, seat_id).ok()?;
 
     let inhibitor = manager.inhibit_shortcuts(&surface, &seat, &qh, ());
+
+    let virtual_keyboard: Option<ZwpVirtualKeyboardV1> = globals
+        .bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
+        .ok()
+        .and_then(|vkm| {
+            let kb = vkm.create_virtual_keyboard(&seat, &qh, ());
+            match upload_keymap(&kb) {
+                Ok(()) => Some(kb),
+                Err(e) => {
+                    log::warn!("virtual-keyboard keymap upload failed: {e}");
+                    None
+                }
+            }
+        });
+
     conn.flush().ok()?;
 
     *STATE.lock().unwrap() = Some(InhibitState {
@@ -175,6 +197,7 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
         surface,
         seat,
         inhibitor: Some(inhibitor),
+        virtual_keyboard,
         _queue: queue,
     });
 
@@ -203,6 +226,76 @@ pub fn toggle() -> bool {
     let _ = state.conn.flush();
     log::info!("shortcuts-inhibit: now {}", if now_inhibiting { "ON" } else { "OFF" });
     now_inhibiting
+}
+
+use std::io::{Seek, SeekFrom, Write};
+use std::os::fd::AsFd;
+
+/// Upload a minimal us-layout XKB keymap to a newly created virtual keyboard.
+/// The compositor uses this to translate our evdev-style keycodes back into
+/// keysyms for the focused client. We only ever emit Alt_L (evdev 56, kc 64)
+/// and F3 (evdev 61, kc 69), but shipping a real us keymap keeps strict
+/// compositors happy.
+fn upload_keymap(kb: &ZwpVirtualKeyboardV1) -> std::io::Result<()> {
+    const KEYMAP: &str = include_str!("us_keymap.xkb");
+    let mut tmp = tempfile::tempfile()?;
+    tmp.write_all(KEYMAP.as_bytes())?;
+    tmp.write_all(b"\0")?;
+    tmp.seek(SeekFrom::Start(0))?;
+    let size = (KEYMAP.len() + 1) as u32;
+    kb.keymap(1 /* xkb_v1 */, tmp.as_fd(), size);
+    Ok(())
+}
+
+/// Send Alt+F3 to the focused client via the virtual keyboard. No-op when
+/// the virtual-keyboard manager wasn't bound at setup.
+pub fn inject_alt_f3() {
+    // Clone what we need and release the STATE lock before issuing Wayland
+    // requests + flush, so any future re-entrant code paths can't deadlock.
+    // Connection and virtual-keyboard proxies are Arc-backed internally.
+    let (conn, kb) = {
+        let guard = STATE.lock().unwrap();
+        let Some(state) = guard.as_ref() else { return };
+        let Some(kb) = state.virtual_keyboard.as_ref() else {
+            log::warn!("inject_alt_f3: virtual keyboard unavailable");
+            return;
+        };
+        (state.conn.clone(), kb.clone())
+    };
+
+    // evdev keycode for F3; the virtual-keyboard protocol uses raw evdev
+    // codes (no X11 +8 offset). Alt is applied via modifiers() bits, not a
+    // separate Alt_L press — that's the canonical wlroots pattern.
+    const KEY_F3: u32 = 61;
+    const PRESSED: u32 = 1;
+    const RELEASED: u32 = 0;
+    const MOD_ALT: u32 = 0x08; // Mod1
+
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0);
+
+    kb.modifiers(MOD_ALT, 0, 0, 0);
+    kb.key(t, KEY_F3, PRESSED);
+    kb.key(t.wrapping_add(1), KEY_F3, RELEASED);
+    kb.modifiers(0, 0, 0, 0);
+    let _ = conn.flush();
+}
+
+/// Whether the tap tracker should intercept bare Super. True only when we
+/// both hold an active shortcut-inhibitor (so the compositor is handing
+/// Super to us) AND have a virtual keyboard bound (so we can inject Alt+F3
+/// back out). If either is missing, bare Super passes through untouched so
+/// the user still gets the compositor's Super handling instead of a silent
+/// swallow with no Start-menu substitute.
+pub fn should_intercept_super() -> bool {
+    STATE
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| s.inhibitor.is_some() && s.virtual_keyboard.is_some())
+        .unwrap_or(false)
 }
 
 #[tauri::command]

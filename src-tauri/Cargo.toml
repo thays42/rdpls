@@ -34,9 +34,12 @@ gdkwayland-sys = "0.18"
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-protocols = { version = "0.32", features = ["unstable", "client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent"] }
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 block2 = "0.6"
+core-graphics = "0.24"

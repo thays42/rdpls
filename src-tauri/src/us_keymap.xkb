@@ -1,0 +1,74 @@
+xkb_keymap {
+xkb_keycodes "minimal" {
+    minimum = 8;
+    maximum = 255;
+    <ESC>  = 9;
+    <AE01> = 10;
+    <AE02> = 11;
+    <AE03> = 12;
+    <AE04> = 13;
+    <AE05> = 14;
+    <AE06> = 15;
+    <AE07> = 16;
+    <AE08> = 17;
+    <AE09> = 18;
+    <AE10> = 19;
+    <AD01> = 24;
+    <AD02> = 25;
+    <AD03> = 26;
+    <AD04> = 27;
+    <AD05> = 28;
+    <AD06> = 29;
+    <AD07> = 30;
+    <AD08> = 31;
+    <AD09> = 32;
+    <AD10> = 33;
+    <AC01> = 38;
+    <AC02> = 39;
+    <AC03> = 40;
+    <AC04> = 41;
+    <AC05> = 42;
+    <AC06> = 43;
+    <AC07> = 44;
+    <AC08> = 45;
+    <AC09> = 46;
+    <AC10> = 47;
+    <AB01> = 52;
+    <AB02> = 53;
+    <AB03> = 54;
+    <AB04> = 55;
+    <AB05> = 56;
+    <AB06> = 57;
+    <AB07> = 58;
+    <AB08> = 59;
+    <AB09> = 60;
+    <AB10> = 61;
+    <LALT> = 64;
+    <FK03> = 69;
+};
+xkb_types "minimal" {
+    virtual_modifiers Alt;
+    type "ONE_LEVEL" {
+        modifiers = none;
+        level_name[Level1] = "Any";
+    };
+    type "TWO_LEVEL" {
+        modifiers = Shift;
+        map[Shift] = Level2;
+        level_name[Level1] = "Base";
+        level_name[Level2] = "Shift";
+    };
+};
+xkb_compatibility "minimal" {
+    virtual_modifiers Alt;
+    interpret Alt_L+AnyOf(all) {
+        virtualModifier = Alt;
+        action = SetMods(modifiers=modMapMods);
+    };
+};
+xkb_symbols "minimal" {
+    key <LALT> { [ Alt_L ] };
+    key <FK03> { [ F3 ] };
+    modifier_map Mod1 { Alt_L };
+};
+};

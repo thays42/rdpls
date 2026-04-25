@@ -1,7 +1,11 @@
 mod keyboard;
+mod tap_tracker;
 
 #[cfg(target_os = "linux")]
 mod shortcuts_inhibit;
+
+#[cfg(target_os = "linux")]
+mod passthrough_linux;
 
 #[cfg(target_os = "macos")]
 mod passthrough_macos;
@@ -146,6 +150,8 @@ fn configure_webview(window: &tauri::WebviewWindow) -> tauri::Result<()> {
             );
             manager.add_script(&escape_script);
         }
+
+        passthrough_linux::install(&webview);
     })?;
     Ok(())
 }
