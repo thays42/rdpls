@@ -85,8 +85,11 @@ pub fn install(webview: &webkit2gtk::WebView) {
 }
 
 fn handle(ev: Event) -> glib::Propagation {
-    if !shortcuts_inhibit::is_inhibiting() {
-        // Passthrough off: reset any tracked state; let GTK keep the event.
+    if !shortcuts_inhibit::should_intercept_super() {
+        // Either inhibit is off (compositor will handle Super) or the
+        // virtual-keyboard protocol isn't available (we can't inject the
+        // Alt+F3 substitute). Either way, don't swallow — preserve whatever
+        // default behavior the user expects.
         feed(Event::PassthroughOff);
         return glib::Propagation::Proceed;
     }

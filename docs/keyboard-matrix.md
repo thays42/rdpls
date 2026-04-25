@@ -67,10 +67,15 @@ Sources: Microsoft AVD web client docs
 and an unanswered Tech Community thread on the same question
 (`techcommunity.microsoft.com/t5/azure-virtual-desktop/avd-webclient-key-mapping/td-p/3821461`).
 
-**Known regression on Linux:** while rdpls is focused on the Microsoft
-auth / launcher page (no active session), Super is still swallowed by the
-tap tracker, so niri's overview won't open on Super until you switch
-focus away or toggle passthrough off with `Ctrl+Alt+Shift+.`.
+**Known regression:** while rdpls is focused on the Microsoft auth /
+launcher page (no active session), Super/Cmd is still swallowed by the
+tap tracker, so the host OS's Super/Cmd handling (niri overview, etc.)
+won't fire until you switch focus away or toggle passthrough off with
+`Ctrl+Alt+Shift+.`. Affects Linux and macOS symmetrically.
+
+If the compositor doesn't advertise `zwp_virtual_keyboard_manager_v1`,
+rdpls cannot inject the Alt+F3 substitute and falls back to letting Super
+pass through untouched — no swallow, no Start menu.
 
 ## rdpls-specific
 

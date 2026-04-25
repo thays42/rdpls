@@ -283,15 +283,18 @@ pub fn inject_alt_f3() {
     let _ = conn.flush();
 }
 
-/// Whether we currently hold an active shortcut-inhibitor. Used by the
-/// tap-tracker gating — we only consume bare Super when we know the
-/// compositor is passing it through to us.
-pub fn is_inhibiting() -> bool {
+/// Whether the tap tracker should intercept bare Super. True only when we
+/// both hold an active shortcut-inhibitor (so the compositor is handing
+/// Super to us) AND have a virtual keyboard bound (so we can inject Alt+F3
+/// back out). If either is missing, bare Super passes through untouched so
+/// the user still gets the compositor's Super handling instead of a silent
+/// swallow with no Start-menu substitute.
+pub fn should_intercept_super() -> bool {
     STATE
         .lock()
         .unwrap()
         .as_ref()
-        .map(|s| s.inhibitor.is_some())
+        .map(|s| s.inhibitor.is_some() && s.virtual_keyboard.is_some())
         .unwrap_or(false)
 }
 
