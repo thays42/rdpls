@@ -42,9 +42,7 @@ pub fn run() {
                 )?;
             }
 
-            let url = ENTRY_URL
-                .parse()
-                .expect("ENTRY_URL must be a valid URL");
+            let url = ENTRY_URL.parse().expect("ENTRY_URL must be a valid URL");
 
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("rdpls")

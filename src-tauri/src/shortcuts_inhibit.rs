@@ -129,17 +129,17 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
     let gdk_display = gdk_window.display();
 
     let raw_display: *mut gdk::ffi::GdkDisplay = gdk_display.to_glib_none().0;
-    let wl_display_ptr: *mut c_void = unsafe {
-        gdk_wayland_sys::gdk_wayland_display_get_wl_display(raw_display as *mut _)
-    } as *mut c_void;
+    let wl_display_ptr: *mut c_void =
+        unsafe { gdk_wayland_sys::gdk_wayland_display_get_wl_display(raw_display as *mut _) }
+            as *mut c_void;
     if wl_display_ptr.is_null() {
         return None;
     }
 
     let raw_window: *mut gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
-    let wl_surface_ptr: *mut c_void = unsafe {
-        gdk_wayland_sys::gdk_wayland_window_get_wl_surface(raw_window as *mut _)
-    } as *mut c_void;
+    let wl_surface_ptr: *mut c_void =
+        unsafe { gdk_wayland_sys::gdk_wayland_window_get_wl_surface(raw_window as *mut _) }
+            as *mut c_void;
     if wl_surface_ptr.is_null() {
         return None;
     }
@@ -147,8 +147,7 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
     let gdk_seat = gdk_display.default_seat()?;
     let raw_seat: *mut gdk::ffi::GdkSeat = gdk_seat.to_glib_none().0;
     let wl_seat_ptr: *mut c_void =
-        unsafe { gdk_wayland_sys::gdk_wayland_seat_get_wl_seat(raw_seat as *mut _) }
-            as *mut c_void;
+        unsafe { gdk_wayland_sys::gdk_wayland_seat_get_wl_seat(raw_seat as *mut _) } as *mut c_void;
     if wl_seat_ptr.is_null() {
         return None;
     }
@@ -168,8 +167,7 @@ fn setup(wv: &tauri::webview::PlatformWebview) -> Option<()> {
         unsafe { ObjectId::from_ptr(WlSurface::interface(), wl_surface_ptr as *mut _) }.ok()?;
     let surface = WlSurface::from_id(&conn, surface_id).ok()?;
 
-    let seat_id =
-        unsafe { ObjectId::from_ptr(WlSeat::interface(), wl_seat_ptr as *mut _) }.ok()?;
+    let seat_id = unsafe { ObjectId::from_ptr(WlSeat::interface(), wl_seat_ptr as *mut _) }.ok()?;
     let seat = WlSeat::from_id(&conn, seat_id).ok()?;
 
     let inhibitor = manager.inhibit_shortcuts(&surface, &seat, &qh, ());
@@ -215,16 +213,20 @@ pub fn toggle() -> bool {
         inhibitor.destroy();
         false
     } else {
-        state.inhibitor = Some(
-            state
-                .manager
-                .inhibit_shortcuts(&state.surface, &state.seat, &state.qh, ()),
-        );
+        state.inhibitor = Some(state.manager.inhibit_shortcuts(
+            &state.surface,
+            &state.seat,
+            &state.qh,
+            (),
+        ));
         true
     };
 
     let _ = state.conn.flush();
-    log::info!("shortcuts-inhibit: now {}", if now_inhibiting { "ON" } else { "OFF" });
+    log::info!(
+        "shortcuts-inhibit: now {}",
+        if now_inhibiting { "ON" } else { "OFF" }
+    );
     now_inhibiting
 }
 

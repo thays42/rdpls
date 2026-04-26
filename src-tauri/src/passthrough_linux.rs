@@ -42,8 +42,8 @@ pub fn install(webview: &webkit2gtk::WebView) {
         let code = event.hardware_keycode();
         let ev = if is_super(code) {
             let mut guard = TRACKER.lock().unwrap();
-            let autorepeat = matches!(guard.state, State::Tracking)
-                && guard.last_down_keycode == Some(code);
+            let autorepeat =
+                matches!(guard.state, State::Tracking) && guard.last_down_keycode == Some(code);
             // Other non-Super modifier held at press time. gdk::ModifierType
             // bits: SHIFT_MASK, CONTROL_MASK, MOD1_MASK (Alt), MOD4_MASK
             // (Super itself). MOD2_MASK is NumLock; LOCK_MASK is CapsLock.
@@ -54,7 +54,10 @@ pub fn install(webview: &webkit2gtk::WebView) {
                 || flags.contains(gdk::ModifierType::MOD1_MASK);
             guard.last_down_keycode = Some(code);
             drop(guard);
-            Event::ModifierDown { other_key_held: other_held, autorepeat }
+            Event::ModifierDown {
+                other_key_held: other_held,
+                autorepeat,
+            }
         } else {
             Event::OtherKey
         };

@@ -20,7 +20,10 @@ pub enum Event {
     /// non-tracked key (modifier or not) is currently held at press time.
     /// `autorepeat` is true when the platform reports this as a repeat of
     /// a still-held press.
-    ModifierDown { other_key_held: bool, autorepeat: bool },
+    ModifierDown {
+        other_key_held: bool,
+        autorepeat: bool,
+    },
     /// The tracked modifier went up.
     ModifierUp,
     /// Any other key went down or up while we care about it.
@@ -28,6 +31,7 @@ pub enum Event {
     /// Passthrough / inhibit was toggled OFF.
     PassthroughOff,
     /// Window focus was lost.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     FocusLost,
 }
 
@@ -56,11 +60,28 @@ pub fn step(state: State, event: Event) -> (State, Action) {
         (_, PassthroughOff) | (_, FocusLost) => (Idle, Noop),
 
         // Idle: modifier goes down.
-        (Idle, ModifierDown { other_key_held: true, .. }) => (Tainted, Swallow),
-        (Idle, ModifierDown { other_key_held: false, .. }) => (Tracking, Swallow),
+        (
+            Idle,
+            ModifierDown {
+                other_key_held: true,
+                ..
+            },
+        ) => (Tainted, Swallow),
+        (
+            Idle,
+            ModifierDown {
+                other_key_held: false,
+                ..
+            },
+        ) => (Tracking, Swallow),
 
         // Tracking: autorepeat of our modifier stays in tracking.
-        (Tracking, ModifierDown { autorepeat: true, .. }) => (Tracking, Swallow),
+        (
+            Tracking,
+            ModifierDown {
+                autorepeat: true, ..
+            },
+        ) => (Tracking, Swallow),
         // Tracking: non-autorepeat modifier-down shouldn't happen without a
         // keyup first; treat as taint defensively.
         (Tracking, ModifierDown { .. }) => (Tainted, Swallow),
@@ -87,15 +108,24 @@ mod tests {
     use super::*;
 
     fn down_clean() -> Event {
-        Event::ModifierDown { other_key_held: false, autorepeat: false }
+        Event::ModifierDown {
+            other_key_held: false,
+            autorepeat: false,
+        }
     }
 
     fn down_with_other_held() -> Event {
-        Event::ModifierDown { other_key_held: true, autorepeat: false }
+        Event::ModifierDown {
+            other_key_held: true,
+            autorepeat: false,
+        }
     }
 
     fn down_repeat() -> Event {
-        Event::ModifierDown { other_key_held: false, autorepeat: true }
+        Event::ModifierDown {
+            other_key_held: false,
+            autorepeat: true,
+        }
     }
 
     #[test]
