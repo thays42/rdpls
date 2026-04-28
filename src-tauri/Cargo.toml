@@ -1,6 +1,6 @@
 [package]
 name = "rdpls"
-version = "0.1.0"
+version = "0.1.1"
 description = "Dedicated RDP browser wrapper"
 authors = ["Tyler Hays <tyhays@gmail.com>"]
 license = ""

@@ -53,6 +53,21 @@ const VK_F3: u16 = 0x63; // kVK_F3
 /// navigation that the user almost never wants inside the RDP session.
 /// Kept intentionally small — see the design doc before extending.
 fn should_swallow(event: &NSEvent) -> bool {
+    // `charactersIgnoringModifiers` asserts (NSEvent.m:2916) on any event
+    // type other than KeyDown/KeyUp/RawKeyEvent — calling it on a
+    // FlagsChanged event raises NSException, which unwinds through the
+    // local-monitor block as a non-unwindable Rust panic and SIGABRTs the
+    // app. Our mask includes FlagsChanged (we need it for the Cmd-tap
+    // tracker), so any FlagsChanged whose modifierFlags happens to equal
+    // Cmd or Cmd|Shift would otherwise crash here. Symptom: holding a
+    // Karabiner-style Hyper (Cmd+Ctrl+Alt+Shift) and releasing in an order
+    // that leaves Cmd as the last-held modifier; or any plain Cmd→Shift
+    // sequence — the second FlagsChanged carries modifierFlags = Cmd|Shift.
+    let event_type = event.r#type();
+    if event_type != NSEventType::KeyDown && event_type != NSEventType::KeyUp {
+        return false;
+    }
+
     let flags = event
         .modifierFlags()
         .intersection(NSEventModifierFlags::DeviceIndependentFlagsMask);
